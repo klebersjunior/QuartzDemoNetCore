@@ -9,6 +9,11 @@ using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Quartz;
+using Quartz.Impl;
+using QuartzDemo.Jobs;
+using CrystalQuartz.AspNetCore;
 
 namespace QuartzDemo
 {
@@ -36,7 +41,7 @@ namespace QuartzDemo
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env, ILoggerFactory loggerFactory)
         {
             if (env.IsDevelopment())
             {
@@ -52,12 +57,43 @@ namespace QuartzDemo
             app.UseStaticFiles();
             app.UseCookiePolicy();
 
+            var scheduler = CreateScheduler();
+
+
+            loggerFactory.AddConsole(Configuration.GetSection("Logging"));
+            loggerFactory.AddDebug();
+
+            app.UseCrystalQuartz(() => scheduler);
             app.UseMvc(routes =>
             {
                 routes.MapRoute(
                     name: "default",
                     template: "{controller=Home}/{action=Index}/{id?}");
             });
+        }
+
+        private static IScheduler CreateScheduler()
+        {
+            StdSchedulerFactory factory = new StdSchedulerFactory();
+            IScheduler scheduler = factory.GetScheduler().Result;
+            scheduler.Start().Wait();
+            ScheduleJobs(scheduler);
+
+            return scheduler;
+        }
+
+        private static void ScheduleJobs(IScheduler scheduler)
+        {
+            IJobDetail job = JobBuilder.Create<DemoJob>().WithIdentity("demoJob", "demoGroup").Build();
+            // Trigger para que o job seja executado imediatamente, e repetidamente a cada 15 segundos
+            ITrigger trigger = TriggerBuilder.Create()
+              .WithIdentity("demoTrigger", "demoGroup")
+              .StartNow()
+              .WithSimpleSchedule(x => x
+                  .WithIntervalInSeconds(15)
+                  .RepeatForever())
+              .Build();
+            scheduler.ScheduleJob(job, trigger).Wait();
         }
     }
 }
